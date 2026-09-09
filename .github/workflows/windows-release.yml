@@ -1,0 +1,127 @@
+name: Build FORGE for REAPER (Windows x64)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: Engine/requirements-win.txt
+
+      - name: Install FORGE engine build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r Engine/requirements-win.txt
+
+      - name: Test source engine
+        shell: pwsh
+        run: python Engine/forge_engine.py self-test
+
+      - name: Build self-contained Windows engine
+        shell: pwsh
+        run: |
+          Push-Location Engine
+          pyinstaller --noconfirm --clean --distpath ../engine-dist --workpath ../engine-build forge_engine.spec
+          Pop-Location
+          if (-not (Test-Path 'engine-dist\forge_engine\forge_engine.exe')) { throw 'forge_engine.exe was not created' }
+
+      - name: Test packaged engine
+        shell: pwsh
+        run: .\engine-dist\forge_engine\forge_engine.exe self-test
+
+      - name: Configure VST3 + Standalone
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VST3 + Standalone
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Locate and assemble VST3 bundle
+        shell: pwsh
+        run: |
+          $vst3 = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
+          $standalone = 'build\FORGE_artefacts\Release\Standalone\FORGE.exe'
+          if (-not (Test-Path $vst3)) { throw "VST3 bundle missing: $vst3" }
+          if (-not (Test-Path $standalone)) { throw "Standalone missing: $standalone" }
+          $engineResources = Join-Path $vst3 'Contents\Resources\Engine'
+          New-Item -ItemType Directory -Force -Path $engineResources | Out-Null
+          Copy-Item 'engine-dist\forge_engine\*' $engineResources -Recurse -Force
+          if (-not (Test-Path (Join-Path $engineResources 'forge_engine.exe'))) { throw 'Engine was not embedded into VST3 resources.' }
+
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip' -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval -Force
+
+      - name: Validate VST3 with pluginval
+        shell: pwsh
+        run: |
+          $binary = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3\Contents\x86_64-win\FORGE.vst3'
+          if (-not (Test-Path $binary)) { throw "Inner VST3 binary missing: $binary" }
+          New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --output-dir .\pluginval-logs --validate $binary
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+
+      - name: Stage release payload
+        shell: pwsh
+        run: |
+          Remove-Item release -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path release\Standalone\Engine | Out-Null
+          Copy-Item 'build\FORGE_artefacts\Release\VST3\FORGE.vst3' 'release\FORGE.vst3' -Recurse -Force
+          Copy-Item 'build\FORGE_artefacts\Release\Standalone\FORGE.exe' 'release\Standalone\FORGE.exe' -Force
+          Copy-Item 'engine-dist\forge_engine\*' 'release\Standalone\Engine' -Recurse -Force
+          if (Test-Path 'ReaperScripts') { Copy-Item 'ReaperScripts' 'release\ReaperScripts' -Recurse -Force }
+          Copy-Item 'README.md' 'release\README.md' -Force
+          if (Test-Path 'RELEASE_NOTES.md') { Copy-Item 'RELEASE_NOTES.md' 'release\RELEASE_NOTES.md' -Force }
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler was not found.' }
+          & $iscc 'Installer\FORGE.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed.' }
+
+      - name: Build portable ZIP and checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'release\*' -DestinationPath 'FORGE_Portable_Windows_x64_v0.8.0.zip' -CompressionLevel Optimal -Force
+          $installer = 'Installer\Output\FORGE_Setup_Windows_x64_v0.8.0.exe'
+          if (-not (Test-Path $installer)) { throw 'Installer EXE was not produced.' }
+          Get-FileHash $installer -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt'
+          Get-FileHash 'FORGE_Portable_Windows_x64_v0.8.0.zip' -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt' -Append
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-Windows-x64-v0.8.0
+          if-no-files-found: error
+          path: |
+            Installer/Output/FORGE_Setup_Windows_x64_v0.8.0.exe
+            FORGE_Portable_Windows_x64_v0.8.0.zip
+            SHA256.txt
+            pluginval-logs/**
