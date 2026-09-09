@@ -124,10 +124,30 @@ jobs:
         run: |
           $bundle = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
           $binary = Join-Path $bundle 'Contents\x86_64-win\FORGE.vst3'
+          $out = 'pluginval-output.txt'
+          if (-not (Test-Path $bundle)) { throw "VST3 bundle missing: $bundle" }
           if (-not (Test-Path $binary)) { throw "Inner VST3 binary missing: $binary" }
           New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
-          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --output-dir .\pluginval-logs --validate $bundle
-          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+          "FORGE bundle: $bundle" | Set-Content $out
+          "FORGE binary: $binary" | Add-Content $out
+          "SHA256: $((Get-FileHash $binary -Algorithm SHA256).Hash)" | Add-Content $out
+          "Bundle contents:" | Add-Content $out
+          Get-ChildItem $bundle -Recurse | Select-Object FullName,Length | Format-Table -AutoSize | Out-String | Add-Content $out
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --output-dir .\pluginval-logs --validate $bundle 2>&1 | Tee-Object -FilePath $out -Append
+          $code = $LASTEXITCODE
+          "pluginval exit code: $code" | Add-Content $out
+          Get-Content $out
+          if ($code -ne 0) { throw "pluginval failed with exit code $code" }
+
+      - name: Upload pluginval diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-diagnostics
+          if-no-files-found: warn
+          path: |
+            pluginval-output.txt
+            pluginval-logs/**
 
       - name: Stage release payload
         shell: pwsh
