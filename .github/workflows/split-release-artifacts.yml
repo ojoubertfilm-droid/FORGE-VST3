@@ -1,0 +1,59 @@
+name: Split validated FORGE release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/split-release-artifacts.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  split:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Download validated release artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: FORGE-Windows-x64-v0.8.0
+          path: validated-release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 34413989350
+
+      - name: Verify validated payload
+        shell: pwsh
+        run: |
+          $installer = 'validated-release\Installer\Output\FORGE_Setup_Windows_x64_v0.8.0.exe'
+          $portable = 'validated-release\FORGE_Portable_Windows_x64_v0.8.0.zip'
+          $checksums = 'validated-release\SHA256.txt'
+          if (-not (Test-Path $installer)) { throw "Installer missing: $installer" }
+          if (-not (Test-Path $portable)) { throw "Portable ZIP missing: $portable" }
+          if (-not (Test-Path $checksums)) { throw "Checksums missing: $checksums" }
+          Write-Host "Installer bytes: $((Get-Item $installer).Length)"
+          Write-Host "Portable bytes: $((Get-Item $portable).Length)"
+          Get-Content $checksums
+
+      - name: Upload FORGE installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-Installer-Windows-x64-v0.8.0
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            validated-release/Installer/Output/FORGE_Setup_Windows_x64_v0.8.0.exe
+            validated-release/SHA256.txt
+
+      - name: Upload FORGE portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-Portable-Windows-x64-v0.8.0
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            validated-release/FORGE_Portable_Windows_x64_v0.8.0.zip
+            validated-release/SHA256.txt
