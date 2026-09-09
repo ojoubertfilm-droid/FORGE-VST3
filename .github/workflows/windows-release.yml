@@ -20,6 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Patch JUCE 8 editor API compatibility
+        shell: pwsh
+        run: |
+          $p = 'Source\PluginEditor.cpp'
+          $s = Get-Content $p -Raw
+          $s = $s.Replace('in.removeFromTop (70.0f), juce::Justification::centred, 3)', '(in.removeFromTop (70.0f)).toNearestInt(), juce::Justification::centred, 3)')
+          $s = $s.Replace('c.reduced (10.0f), juce::Justification::centred, 2)', '(c.reduced (10.0f)).toNearestInt(), juce::Justification::centred, 2)')
+          $s = $s.Replace('right.removeFromTop (100).reduced (120, 4, 4, 4)', 'right.removeFromTop (100).withTrimmedLeft (120).reduced (4)')
+          $s = $s.Replace('right.removeFromTop (110).reduced (120, 6, 4, 6)', 'right.removeFromTop (110).withTrimmedLeft (120).withTrimmedTop (6).withTrimmedRight (4).withTrimmedBottom (6)')
+          Set-Content $p $s -Encoding utf8
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
