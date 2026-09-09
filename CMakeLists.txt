@@ -24,6 +24,7 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(FORGE
     COMPANY_NAME "OJ Labs"
+    BUNDLE_ID "com.ojlabs.forge"
     COMPANY_WEBSITE "https://github.com/ojoubertfilm-droid/FORGE-VST3"
     COMPANY_EMAIL ""
     PLUGIN_MANUFACTURER_CODE Ojrb
@@ -39,6 +40,8 @@ juce_add_plugin(FORGE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Fx Pitch Shift Dynamics
 )
+
+juce_generate_juce_header(FORGE)
 
 target_sources(FORGE PRIVATE
     Source/PluginProcessor.cpp
