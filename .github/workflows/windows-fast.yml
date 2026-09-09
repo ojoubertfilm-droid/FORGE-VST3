@@ -1,0 +1,33 @@
+name: Fast Windows VST3 Compile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  compile:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build-fast -G "Visual Studio 17 2022" -A x64
+      - name: Compile VST3 and Standalone
+        shell: pwsh
+        run: cmake --build build-fast --config Release --parallel 4
+      - name: Verify outputs
+        shell: pwsh
+        run: |
+          $vst3='build-fast\FORGE_artefacts\Release\VST3\FORGE.vst3\Contents\x86_64-win\FORGE.vst3'
+          $exe='build-fast\FORGE_artefacts\Release\Standalone\FORGE.exe'
+          if(-not (Test-Path $vst3)){throw "VST3 binary missing: $vst3"}
+          if(-not (Test-Path $exe)){throw "Standalone missing: $exe"}
+      - name: Upload compile proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-fast-compile
+          path: |
+            build-fast/FORGE_artefacts/Release/VST3/FORGE.vst3/**
+            build-fast/FORGE_artefacts/Release/Standalone/FORGE.exe
