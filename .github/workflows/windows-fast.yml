@@ -28,9 +28,9 @@ jobs:
           $s = Get-Content $p -Raw
           $ids = @('genre','accuracy','expression','repair','timingTightness','humanize','mixStrength','stackSize','width','tightness','harmonyIntensity','octaveBlend','character','diffusionSteps','identityFocus')
           foreach ($id in $ids) {
-            $s = $s.Replace('("' + $id + '",', '(juce::ParameterID { "' + $id + '", 1 },')
+            $s = $s.Replace('("'.Replace('\','') + $id + '",'.Replace('\',''), '(juce::ParameterID { "'.Replace('\','') + $id + '", 1 },'.Replace('\',''))
           }
-          $s = $s.Replace('sessionId = juce::Uuid().toString();', 'sessionId = "idle";')
+          $s = $s.Replace('sessionId = juce::Uuid().toString();', 'sessionId = "idle";'.Replace('\',''))
           $s = $s.Replace('return in == out;', 'return (in == out) || (in == juce::AudioChannelSet::mono() && out == juce::AudioChannelSet::stereo());')
           $pattern = 'if \(! wasCapturing\)\s*\{\s*captureBuffer\.clear\(\);'
           $replacement = @'
@@ -44,6 +44,7 @@ jobs:
               }
               captureBuffer.clear();
           '@
+          $replacement = $replacement.Replace('\','')
           $s = [regex]::Replace($s, $pattern, $replacement, 1)
           Set-Content $p $s -Encoding utf8
       - name: Configure
