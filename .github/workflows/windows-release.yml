@@ -38,9 +38,14 @@ jobs:
           $s = Get-Content $p -Raw
           $ids = @('genre','accuracy','expression','repair','timingTightness','humanize','mixStrength','stackSize','width','tightness','harmonyIntensity','octaveBlend','character','diffusionSteps','identityFocus')
           foreach ($id in $ids) {
-            $s = $s.Replace('("' + $id + '",', '(juce::ParameterID { "' + $id + '", 1 },')
+            $old = '("' + $id + '",'
+            $old = $old.Replace('\','')
+            $new = '(juce::ParameterID { "' + $id + '", 1 },'
+            $new = $new.Replace('\','')
+            $s = $s.Replace($old, $new)
           }
-          $s = $s.Replace('sessionId = juce::Uuid().toString();', 'sessionId = "idle";')
+          $newIdle = 'sessionId = "idle";'.Replace('\','')
+          $s = $s.Replace('sessionId = juce::Uuid().toString();', $newIdle)
           $s = $s.Replace('return in == out;', 'return (in == out) || (in == juce::AudioChannelSet::mono() && out == juce::AudioChannelSet::stereo());')
           $pattern = 'if \(! wasCapturing\)\s*\{\s*captureBuffer\.clear\(\);'
           $replacement = @'
@@ -54,6 +59,7 @@ jobs:
               }
               captureBuffer.clear();
           '@
+          $replacement = $replacement.Replace('\','')
           $s = [regex]::Replace($s, $pattern, $replacement, 1)
           Set-Content $p $s -Encoding utf8
 
@@ -116,10 +122,11 @@ jobs:
       - name: Validate VST3 with pluginval
         shell: pwsh
         run: |
-          $binary = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3\Contents\x86_64-win\FORGE.vst3'
+          $bundle = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
+          $binary = Join-Path $bundle 'Contents\x86_64-win\FORGE.vst3'
           if (-not (Test-Path $binary)) { throw "Inner VST3 binary missing: $binary" }
           New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
-          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --output-dir .\pluginval-logs --validate $binary
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --output-dir .\pluginval-logs --validate $bundle
           if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
 
       - name: Stage release payload
