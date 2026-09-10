@@ -32,6 +32,10 @@ jobs:
           $s = $s.Replace('right.removeFromTop (110).reduced (120, 6, 4, 6)', 'right.removeFromTop (110).withTrimmedLeft (120).withTrimmedTop (6).withTrimmedRight (4).withTrimmedBottom (6)')
           Set-Content $p $s -Encoding utf8
 
+      - name: Patch responsive REAPER UI
+        shell: pwsh
+        run: .\ci\PatchResponsiveUI.ps1
+
       - name: Patch VST3 validation compatibility
         shell: pwsh
         run: |
