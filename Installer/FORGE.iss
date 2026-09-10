@@ -1,5 +1,5 @@
 #define MyAppName "FORGE"
-#define MyAppVersion "0.8.0"
+#define MyAppVersion "0.9.0"
 #define MyAppPublisher "OJ Labs"
 #define MyAppExeName "FORGE.exe"
 
@@ -14,7 +14,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 OutputDir={#SourcePath}\Output
-OutputBaseFilename=FORGE_Setup_Windows_x64_v0.8.0
+OutputBaseFilename=FORGE_Setup_Windows_x64_v0.9.0
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -52,5 +52,5 @@ function InitializeSetup(): Boolean;
 begin
   Result := IsWin64;
   if not Result then
-    MsgBox('FORGE v0.8 requires 64-bit Windows and 64-bit REAPER.', mbError, MB_OK);
+    MsgBox('FORGE v0.9 requires 64-bit Windows and 64-bit REAPER.', mbError, MB_OK);
 end;
