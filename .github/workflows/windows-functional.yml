@@ -23,6 +23,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -r Engine/requirements-win.txt
+      - name: Apply Heavy Key Brain v2
+        shell: pwsh
+        run: python Engine/patch_keybrain_v2.py
+      - name: Source engine self-test
+        shell: pwsh
+        run: python Engine/forge_engine.py self-test
       - name: Build packaged engine
         shell: pwsh
         run: |
@@ -30,6 +36,9 @@ jobs:
           pyinstaller --noconfirm --clean --distpath ../engine-dist --workpath ../engine-build forge_engine.spec
           Pop-Location
           if (-not (Test-Path 'engine-dist\forge_engine\forge_engine.exe')) { throw 'forge_engine.exe missing' }
+      - name: Packaged engine self-test
+        shell: pwsh
+        run: .\engine-dist\forge_engine\forge_engine.exe self-test
       - name: Run packaged heavy-vocal functional regression
         shell: pwsh
         run: python Engine/test_full_pipeline.py --engine engine-dist/forge_engine/forge_engine.exe
