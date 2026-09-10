@@ -26,9 +26,9 @@ jobs:
       - name: Apply Heavy Key Brain v2
         shell: pwsh
         run: python Engine/patch_keybrain_v2.py
-      - name: Apply Melody Authority v2
+      - name: Apply Melody Authority v3
         shell: pwsh
-        run: python Engine/patch_melody_authority_v2.py
+        run: python Engine/patch_melody_authority_v3.py
       - name: Source engine self-test
         shell: pwsh
         run: python Engine/forge_engine.py self-test
