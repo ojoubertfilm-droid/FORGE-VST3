@@ -1,0 +1,35 @@
+name: FORGE Windows Functional Gate
+
+on:
+  push:
+    branches:
+      - forge-v0.9-build
+  workflow_dispatch:
+
+jobs:
+  functional:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: Engine/requirements-win.txt
+      - name: Install engine build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r Engine/requirements-win.txt
+      - name: Build packaged engine
+        shell: pwsh
+        run: |
+          Push-Location Engine
+          pyinstaller --noconfirm --clean --distpath ../engine-dist --workpath ../engine-build forge_engine.spec
+          Pop-Location
+          if (-not (Test-Path 'engine-dist\forge_engine\forge_engine.exe')) { throw 'forge_engine.exe missing' }
+      - name: Run packaged heavy-vocal functional regression
+        shell: pwsh
+        run: python Engine/test_full_pipeline.py --engine engine-dist/forge_engine/forge_engine.exe
