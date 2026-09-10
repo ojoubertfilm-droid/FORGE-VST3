@@ -9,7 +9,7 @@ $s = [regex]::Replace(
     "auto tabs = top.reduced (18);`r`n    tabs.removeFromLeft (355);`r`n    tabs.removeFromRight (10);",
     1)
 
-# Sidebar: reserve the bottom section for the four primary workflow controls.
+# Sidebar: reserve the bottom section for Load Reference, Capture, Genre and PRODUCE VOCAL.
 $s = $s.Replace(
     'sidebar.removeFromTop (340);',
     'sidebar.removeFromTop (juce::jmax (190, sidebar.getHeight() - 200));')
@@ -31,7 +31,7 @@ right.removeFromTop (32);
 '@
 $s = [regex]::Replace($s, $layoutPattern, $layoutReplacement, 1)
 
-# Painted labels must follow the exact same responsive row spacing.
+# Painted labels follow the exact same responsive row spacing.
 $labelPattern = 'for \(int i = 0; i < 6; \+\+i\) \{ g\.setColour \(muted\); g\.setFont \(juce::Font \(10\.0f\)\); g\.drawText \(names\[i\], q\.removeFromTop \(100\.0f\), juce::Justification::centredLeft\); \}'
 $labelReplacement = @'
 const int labelRow = juce::jlimit (48, 86, (q.getHeight() - 84) / 6);
@@ -39,7 +39,12 @@ const int labelRow = juce::jlimit (48, 86, (q.getHeight() - 84) / 6);
 '@
 $s = [regex]::Replace($s, $labelPattern, $labelReplacement)
 
-# Neural controls are kept on-screen too, even though neural full render remains gated.
+# Keep unfinished neural generation out of the install-candidate UI. Source remains for later development.
+$s = $s.Replace('    setupButton (neuralTab, "Neural");', "    setupButton (neuralTab, \"Neural\");`r`n    neuralTab.setVisible (false);`r`n    neuralTab.setEnabled (false);")
+$s = $s.Replace('    const int tw = juce::jmax (90, tabs.getWidth() / 5);', '    const int tw = juce::jmax (90, tabs.getWidth() / 4);')
+$s = [regex]::Replace($s, '\s*neuralTab\.setBounds \(tabs\.removeFromLeft \(tw\)\.reduced \(4\)\);', '', 1)
+
+# If the hidden neural page is reached programmatically, its controls still remain in-bounds.
 $neuralPattern = 'diffusion\.setBounds \(right\.removeFromTop \(110\)(?:\.reduced \(120, 6, 4, 6\)|\.withTrimmedLeft \(120\)\.withTrimmedTop \(6\)\.withTrimmedRight \(4\)\.withTrimmedBottom \(6\))\);\s*identity\.setBounds \(right\.removeFromTop \(110\)(?:\.reduced \(120, 6, 4, 6\)|\.withTrimmedLeft \(120\)\.withTrimmedTop \(6\)\.withTrimmedRight \(4\)\.withTrimmedBottom \(6\))\);'
 $neuralReplacement = @'
 const int neuralRow = juce::jlimit (64, 110, (right.getHeight() - 24) / 2);
@@ -53,7 +58,9 @@ $required = @(
     'tabs.removeFromLeft (355);',
     'sidebar.getHeight() - 200',
     'const int rowH = juce::jlimit (48, 86',
-    'const int labelRow = juce::jlimit (48, 86'
+    'const int labelRow = juce::jlimit (48, 86',
+    'neuralTab.setVisible (false);',
+    'tabs.getWidth() / 4'
 )
 foreach ($needle in $required) {
     if (-not $s.Contains($needle)) { throw "Responsive UI patch failed to apply: $needle" }
