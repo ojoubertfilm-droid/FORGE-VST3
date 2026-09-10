@@ -11,7 +11,7 @@ env:
 jobs:
   install-candidate:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -70,9 +70,18 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r Engine/requirements-win.txt
 
+      - name: HARD GATE - UI to engine wiring audit
+        shell: pwsh
+        run: python Tests/check_wiring.py
+
       - name: HARD GATE - source engine self-test
         shell: pwsh
         run: python Engine/forge_engine.py self-test
+
+      - name: HARD GATE - source full vocal workflow
+        shell: pwsh
+        timeout-minutes: 12
+        run: python Tests/engine_integration_smoke.py --engine python Engine/forge_engine.py --work smoke-source
 
       - name: Build self-contained Windows engine
         shell: pwsh
@@ -85,6 +94,11 @@ jobs:
       - name: HARD GATE - packaged engine self-test
         shell: pwsh
         run: .\engine-dist\forge_engine\forge_engine.exe self-test
+
+      - name: HARD GATE - packaged full vocal workflow
+        shell: pwsh
+        timeout-minutes: 12
+        run: python Tests/engine_integration_smoke.py --engine .\engine-dist\forge_engine\forge_engine.exe --work smoke-packaged
 
       - name: Configure Windows x64 VST3
         shell: pwsh
@@ -108,34 +122,40 @@ jobs:
 
       - name: Download pluginval
         shell: pwsh
-        continue-on-error: true
         run: |
           Invoke-WebRequest 'https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip' -OutFile pluginval.zip
           Expand-Archive pluginval.zip -DestinationPath pluginval -Force
+          if (-not (Test-Path '.\pluginval\pluginval.exe')) { throw 'pluginval.exe was not downloaded' }
 
-      - name: DIAGNOSTIC - pluginval
-        id: pluginval
+      - name: HARD GATE - pluginval audio/state/automation
         shell: pwsh
-        continue-on-error: true
+        timeout-minutes: 12
         run: |
           $bundle = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
           New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
-          if (Test-Path '.\pluginval\pluginval.exe') {
-            & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --output-dir .\pluginval-logs --validate $bundle 2>&1 | Tee-Object -FilePath pluginval-output.txt
-            "pluginval exit code: $LASTEXITCODE" | Add-Content pluginval-output.txt
-          } else {
-            'pluginval unavailable - compile/installer candidate continues' | Set-Content pluginval-output.txt
-          }
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --output-dir .\pluginval-logs --validate $bundle 2>&1 | Tee-Object -FilePath pluginval-output.txt
+          if ($LASTEXITCODE -ne 0) { throw "pluginval core validation failed: $LASTEXITCODE" }
+
+      - name: HARD GATE - pluginval editor/UI
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $bundle = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
+          New-Item -ItemType Directory -Force -Path pluginval-gui-logs | Out-Null
+          & .\pluginval\pluginval.exe --strictness-level 5 --output-dir .\pluginval-gui-logs --validate $bundle 2>&1 | Tee-Object -FilePath pluginval-gui-output.txt
+          if ($LASTEXITCODE -ne 0) { throw "pluginval editor validation failed: $LASTEXITCODE" }
 
       - name: Upload pluginval diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: FORGE-pluginval-diagnostics
+          name: FORGE-v0.9-pluginval-diagnostics
           if-no-files-found: warn
           path: |
             pluginval-output.txt
+            pluginval-gui-output.txt
             pluginval-logs/**
+            pluginval-gui-logs/**
 
       - name: Stage install candidate
         shell: pwsh
@@ -157,22 +177,42 @@ jobs:
           if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler was not found.' }
           & $iscc 'Installer\FORGE.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed.' }
+          if (-not (Test-Path 'Installer\Output\FORGE_Setup_Windows_x64_v0.9.0.exe')) { throw 'Installer EXE was not produced.' }
+
+      - name: HARD GATE - install exactly like a user
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $installer = (Resolve-Path 'Installer\Output\FORGE_Setup_Windows_x64_v0.9.0.exe').Path
+          $installed = Join-Path $env:CommonProgramFiles 'VST3\FORGE.vst3'
+          if (Test-Path $installed) { Remove-Item $installed -Recurse -Force }
+          $p = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer returned $($p.ExitCode)" }
+          $inner = Join-Path $installed 'Contents\x86_64-win\FORGE.vst3'
+          $engineExe = Join-Path $installed 'Contents\Resources\Engine\forge_engine.exe'
+          if (-not (Test-Path $inner)) { throw "Installed VST3 binary missing: $inner" }
+          if (-not (Test-Path $engineExe)) { throw "Installed FORGE engine missing: $engineExe" }
+          & $engineExe self-test
+          if ($LASTEXITCODE -ne 0) { throw "Installed embedded engine self-test failed: $LASTEXITCODE" }
+          python Tests/engine_integration_smoke.py --engine $engineExe --work smoke-installed
+          if ($LASTEXITCODE -ne 0) { throw "Installed full vocal workflow failed: $LASTEXITCODE" }
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate $installed
+          if ($LASTEXITCODE -ne 0) { throw "Installed VST3 pluginval failed: $LASTEXITCODE" }
 
       - name: Build portable ZIP and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path 'release\*' -DestinationPath 'FORGE_Portable_Windows_x64_v0.8.0.zip' -CompressionLevel Optimal -Force
-          $installer = 'Installer\Output\FORGE_Setup_Windows_x64_v0.8.0.exe'
-          if (-not (Test-Path $installer)) { throw 'Installer EXE was not produced.' }
+          Compress-Archive -Path 'release\*' -DestinationPath 'FORGE_Portable_Windows_x64_v0.9.0.zip' -CompressionLevel Optimal -Force
+          $installer = 'Installer\Output\FORGE_Setup_Windows_x64_v0.9.0.exe'
           Get-FileHash $installer -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt'
-          Get-FileHash 'FORGE_Portable_Windows_x64_v0.8.0.zip' -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt' -Append
+          Get-FileHash 'FORGE_Portable_Windows_x64_v0.9.0.zip' -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt' -Append
 
       - name: Upload install candidate
         uses: actions/upload-artifact@v4
         with:
-          name: FORGE-Windows-x64-INSTALL-CANDIDATE
+          name: FORGE-Windows-x64-v0.9-INSTALL-CANDIDATE
           if-no-files-found: error
           path: |
-            Installer/Output/FORGE_Setup_Windows_x64_v0.8.0.exe
-            FORGE_Portable_Windows_x64_v0.8.0.zip
+            Installer/Output/FORGE_Setup_Windows_x64_v0.9.0.exe
+            FORGE_Portable_Windows_x64_v0.9.0.zip
             SHA256.txt
