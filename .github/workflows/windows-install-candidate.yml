@@ -1,0 +1,178 @@
+name: FORGE Windows Install Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  install-candidate:
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Patch JUCE 8 editor API compatibility
+        shell: pwsh
+        run: |
+          $p = 'Source\PluginEditor.cpp'
+          $s = Get-Content $p -Raw
+          $s = $s.Replace('in.removeFromTop (70.0f), juce::Justification::centred, 3)', '(in.removeFromTop (70.0f)).toNearestInt(), juce::Justification::centred, 3)')
+          $s = $s.Replace('c.reduced (10.0f), juce::Justification::centred, 2)', '(c.reduced (10.0f)).toNearestInt(), juce::Justification::centred, 2)')
+          $s = $s.Replace('right.removeFromTop (100).reduced (120, 4, 4, 4)', 'right.removeFromTop (100).withTrimmedLeft (120).reduced (4)')
+          $s = $s.Replace('right.removeFromTop (110).reduced (120, 6, 4, 6)', 'right.removeFromTop (110).withTrimmedLeft (120).withTrimmedTop (6).withTrimmedRight (4).withTrimmedBottom (6)')
+          Set-Content $p $s -Encoding utf8
+
+      - name: Patch VST3 host compatibility
+        shell: pwsh
+        run: |
+          $p = 'Source\PluginProcessor.cpp'
+          $s = Get-Content $p -Raw
+          $ids = @('genre','accuracy','expression','repair','timingTightness','humanize','mixStrength','stackSize','width','tightness','harmonyIntensity','octaveBlend','character','diffusionSteps','identityFocus')
+          foreach ($id in $ids) {
+            $old = '("' + $id + '",'
+            $new = '(juce::ParameterID { "' + $id + '", 1 },'
+            $s = $s.Replace($old, $new)
+          }
+          $s = $s.Replace('sessionId = juce::Uuid().toString();', 'sessionId = "idle";')
+          $s = $s.Replace('return in == out;', 'return (in == out) || (in == juce::AudioChannelSet::mono() && out == juce::AudioChannelSet::stereo());')
+          $pattern = 'if \(! wasCapturing\)\s*\{\s*captureBuffer\.clear\(\);'
+          $replacement = @'
+          if (! wasCapturing)
+          {
+              if (sessionId == "idle")
+              {
+                  sessionId = juce::Uuid().toString();
+                  engine.setSessionId (sessionId);
+                  refreshSessionFiles();
+              }
+              captureBuffer.clear();
+          '@
+          $s = [regex]::Replace($s, $pattern, $replacement, 1)
+          Set-Content $p $s -Encoding utf8
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: Engine/requirements-win.txt
+
+      - name: Install engine build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r Engine/requirements-win.txt
+
+      - name: HARD GATE - source engine self-test
+        shell: pwsh
+        run: python Engine/forge_engine.py self-test
+
+      - name: Build self-contained Windows engine
+        shell: pwsh
+        run: |
+          Push-Location Engine
+          pyinstaller --noconfirm --clean --distpath ../engine-dist --workpath ../engine-build forge_engine.spec
+          Pop-Location
+          if (-not (Test-Path 'engine-dist\forge_engine\forge_engine.exe')) { throw 'forge_engine.exe was not created' }
+
+      - name: HARD GATE - packaged engine self-test
+        shell: pwsh
+        run: .\engine-dist\forge_engine\forge_engine.exe self-test
+
+      - name: Configure Windows x64 VST3
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: HARD GATE - compile VST3 and Standalone
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 4
+
+      - name: HARD GATE - assemble complete VST3 bundle
+        shell: pwsh
+        run: |
+          $vst3 = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
+          $standalone = 'build\FORGE_artefacts\Release\Standalone\FORGE.exe'
+          if (-not (Test-Path $vst3)) { throw "VST3 bundle missing: $vst3" }
+          if (-not (Test-Path $standalone)) { throw "Standalone missing: $standalone" }
+          $engineResources = Join-Path $vst3 'Contents\Resources\Engine'
+          New-Item -ItemType Directory -Force -Path $engineResources | Out-Null
+          Copy-Item 'engine-dist\forge_engine\*' $engineResources -Recurse -Force
+          if (-not (Test-Path (Join-Path $engineResources 'forge_engine.exe'))) { throw 'Engine was not embedded into VST3 resources.' }
+
+      - name: Download pluginval
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Invoke-WebRequest 'https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip' -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval -Force
+
+      - name: DIAGNOSTIC - pluginval
+        id: pluginval
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $bundle = 'build\FORGE_artefacts\Release\VST3\FORGE.vst3'
+          New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
+          if (Test-Path '.\pluginval\pluginval.exe') {
+            & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --output-dir .\pluginval-logs --validate $bundle 2>&1 | Tee-Object -FilePath pluginval-output.txt
+            "pluginval exit code: $LASTEXITCODE" | Add-Content pluginval-output.txt
+          } else {
+            'pluginval unavailable - compile/installer candidate continues' | Set-Content pluginval-output.txt
+          }
+
+      - name: Upload pluginval diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-pluginval-diagnostics
+          if-no-files-found: warn
+          path: |
+            pluginval-output.txt
+            pluginval-logs/**
+
+      - name: Stage install candidate
+        shell: pwsh
+        run: |
+          Remove-Item release -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path release\Standalone\Engine | Out-Null
+          Copy-Item 'build\FORGE_artefacts\Release\VST3\FORGE.vst3' 'release\FORGE.vst3' -Recurse -Force
+          Copy-Item 'build\FORGE_artefacts\Release\Standalone\FORGE.exe' 'release\Standalone\FORGE.exe' -Force
+          Copy-Item 'engine-dist\forge_engine\*' 'release\Standalone\Engine' -Recurse -Force
+          if (Test-Path 'ReaperScripts') { Copy-Item 'ReaperScripts' 'release\ReaperScripts' -Recurse -Force }
+          Copy-Item 'README.md' 'release\README.md' -Force
+          if (Test-Path 'RELEASE_NOTES.md') { Copy-Item 'RELEASE_NOTES.md' 'release\RELEASE_NOTES.md' -Force }
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler was not found.' }
+          & $iscc 'Installer\FORGE.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed.' }
+
+      - name: Build portable ZIP and checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'release\*' -DestinationPath 'FORGE_Portable_Windows_x64_v0.8.0.zip' -CompressionLevel Optimal -Force
+          $installer = 'Installer\Output\FORGE_Setup_Windows_x64_v0.8.0.exe'
+          if (-not (Test-Path $installer)) { throw 'Installer EXE was not produced.' }
+          Get-FileHash $installer -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt'
+          Get-FileHash 'FORGE_Portable_Windows_x64_v0.8.0.zip' -Algorithm SHA256 | Format-List | Out-File 'SHA256.txt' -Append
+
+      - name: Upload install candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-Windows-x64-INSTALL-CANDIDATE
+          if-no-files-found: error
+          path: |
+            Installer/Output/FORGE_Setup_Windows_x64_v0.8.0.exe
+            FORGE_Portable_Windows_x64_v0.8.0.zip
+            SHA256.txt
