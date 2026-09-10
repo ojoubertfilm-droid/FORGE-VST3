@@ -1,0 +1,38 @@
+name: Extract FORGE installer
+
+on:
+  push:
+    branches:
+      - forge-v0.9-build
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  extract-installer:
+    runs-on: windows-2022
+    steps:
+      - name: Download successful release artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 34461221491 --repo ${{ github.repository }} --name FORGE-Windows-x64-v0.8.0 --dir release-artifact
+          $installer = Get-ChildItem release-artifact -Recurse -Filter 'FORGE_Setup_Windows_x64_v0.8.0.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'FORGE installer was not found in successful release artifact.' }
+          New-Item -ItemType Directory -Force -Path installer-only | Out-Null
+          Copy-Item $installer.FullName 'installer-only\FORGE_Setup_Windows_x64_v0.8.0.exe' -Force
+          Get-FileHash 'installer-only\FORGE_Setup_Windows_x64_v0.8.0.exe' -Algorithm SHA256 | Format-List | Out-File 'installer-only\SHA256.txt'
+          Get-Item 'installer-only\FORGE_Setup_Windows_x64_v0.8.0.exe' | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload installer only
+        uses: actions/upload-artifact@v4
+        with:
+          name: FORGE-INSTALLER-Windows-x64-v0.8.0
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            installer-only/FORGE_Setup_Windows_x64_v0.8.0.exe
+            installer-only/SHA256.txt
