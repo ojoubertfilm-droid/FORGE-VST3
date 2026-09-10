@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - forge-v0.9-build
     tags:
       - 'v*'
 
