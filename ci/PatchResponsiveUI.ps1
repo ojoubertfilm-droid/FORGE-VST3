@@ -40,7 +40,12 @@ const int labelRow = juce::jlimit (48, 86, (q.getHeight() - 84) / 6);
 $s = [regex]::Replace($s, $labelPattern, $labelReplacement)
 
 # Keep unfinished neural generation out of the install-candidate UI. Source remains for later development.
-$s = $s.Replace('    setupButton (neuralTab, "Neural");', "    setupButton (neuralTab, \"Neural\");`r`n    neuralTab.setVisible (false);`r`n    neuralTab.setEnabled (false);")
+$neuralTabReplacement = @'
+    setupButton (neuralTab, "Neural");
+    neuralTab.setVisible (false);
+    neuralTab.setEnabled (false);
+'@
+$s = $s.Replace('    setupButton (neuralTab, "Neural");', $neuralTabReplacement.TrimEnd())
 $s = $s.Replace('    const int tw = juce::jmax (90, tabs.getWidth() / 5);', '    const int tw = juce::jmax (90, tabs.getWidth() / 4);')
 $s = [regex]::Replace($s, '\s*neuralTab\.setBounds \(tabs\.removeFromLeft \(tw\)\.reduced \(4\)\);', '', 1)
 
