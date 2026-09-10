@@ -32,10 +32,11 @@ right.removeFromTop (32);
 $s = [regex]::Replace($s, $layoutPattern, $layoutReplacement, 1)
 
 # Painted labels follow the exact same responsive row spacing.
+# q is Rectangle<float>, so keep all jlimit arguments and the row value float.
 $labelPattern = 'for \(int i = 0; i < 6; \+\+i\) \{ g\.setColour \(muted\); g\.setFont \(juce::Font \(10\.0f\)\); g\.drawText \(names\[i\], q\.removeFromTop \(100\.0f\), juce::Justification::centredLeft\); \}'
 $labelReplacement = @'
-const int labelRow = juce::jlimit (48, 86, (q.getHeight() - 84) / 6);
-        for (int i = 0; i < 6; ++i) { g.setColour (muted); g.setFont (juce::Font (10.0f)); g.drawText (names[i], q.removeFromTop ((float) labelRow), juce::Justification::centredLeft); }
+const float labelRow = juce::jlimit (48.0f, 86.0f, (q.getHeight() - 84.0f) / 6.0f);
+        for (int i = 0; i < 6; ++i) { g.setColour (muted); g.setFont (juce::Font (10.0f)); g.drawText (names[i], q.removeFromTop (labelRow), juce::Justification::centredLeft); }
 '@
 $s = [regex]::Replace($s, $labelPattern, $labelReplacement)
 
@@ -63,7 +64,7 @@ $required = @(
     'tabs.removeFromLeft (355);',
     'sidebar.getHeight() - 200',
     'const int rowH = juce::jlimit (48, 86',
-    'const int labelRow = juce::jlimit (48, 86',
+    'const float labelRow = juce::jlimit (48.0f, 86.0f',
     'neuralTab.setVisible (false);',
     'tabs.getWidth() / 4'
 )
