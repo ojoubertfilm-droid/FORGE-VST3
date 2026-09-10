@@ -26,6 +26,9 @@ jobs:
       - name: Apply Heavy Key Brain v2
         shell: pwsh
         run: python Engine/patch_keybrain_v2.py
+      - name: Apply Melody Authority v2
+        shell: pwsh
+        run: python Engine/patch_melody_authority_v2.py
       - name: Source engine self-test
         shell: pwsh
         run: python Engine/forge_engine.py self-test
@@ -39,6 +42,9 @@ jobs:
       - name: Packaged engine self-test
         shell: pwsh
         run: .\engine-dist\forge_engine\forge_engine.exe self-test
+      - name: Missed-note melody recovery gate
+        shell: pwsh
+        run: python Engine/test_note_identity.py --engine engine-dist/forge_engine/forge_engine.exe
       - name: Run packaged heavy-vocal functional regression
         shell: pwsh
         run: python Engine/test_full_pipeline.py --engine engine-dist/forge_engine/forge_engine.exe
